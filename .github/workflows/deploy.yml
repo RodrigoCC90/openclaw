@@ -1,0 +1,74 @@
+name: Deploy to Azure VM
+
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "*.md"
+      - ".github/workflows/ci.yml"
+      - ".github/workflows/stale.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to VM via SSH
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script_stop: true
+          timeout: 300s
+          script: |
+            set -euo pipefail
+
+            cd ~/openclaw
+
+            # Pull latest code
+            git fetch origin main
+            git reset --hard origin/main
+
+            # Update .env secrets
+            cat > ~/openclaw/.env << 'ENVEOF'
+            OPENCLAW_CONFIG_DIR=/home/openclaw/.openclaw
+            OPENCLAW_WORKSPACE_DIR=/home/openclaw/.openclaw/workspace
+            OPENCLAW_GATEWAY_PORT=18789
+            OPENCLAW_BRIDGE_PORT=18790
+            OPENCLAW_GATEWAY_BIND=lan
+            OPENCLAW_GATEWAY_TOKEN=${{ secrets.OPENCLAW_GATEWAY_TOKEN }}
+            OPENCLAW_IMAGE=openclaw:local
+            OPENCLAW_EXTRA_MOUNTS=
+            OPENCLAW_HOME_VOLUME=
+            OPENCLAW_DOCKER_APT_PACKAGES=
+            CLAUDE_AI_SESSION_KEY=${{ secrets.CLAUDE_AI_SESSION_KEY }}
+            ENVEOF
+            chmod 600 ~/openclaw/.env
+
+            # Rebuild and restart
+            docker compose build --quiet
+            docker compose up -d --remove-orphans
+
+            # Wait for startup
+            sleep 10
+            docker compose ps
+
+            # Smoke test
+            if ! docker compose ps --format json | grep -q '"running"'; then
+              echo "ERROR: Container is not running!"
+              docker compose logs --tail=100 openclaw-gateway
+              exit 1
+            fi
+
+            echo "Deployment successful at $(date -u)"
