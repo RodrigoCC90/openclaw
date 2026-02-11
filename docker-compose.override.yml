@@ -1,0 +1,14 @@
+services:
+  openclaw-gateway:
+    environment:
+      DISPLAY: ${DISPLAY}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    network_mode: host
+  
+  openclaw-cli:
+    environment:
+      DISPLAY: ${DISPLAY}
+    volumes:
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+    network_mode: host
